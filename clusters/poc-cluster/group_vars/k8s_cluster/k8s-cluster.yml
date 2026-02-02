@@ -25,7 +25,7 @@ retry_stagger: 5
 
 # This is the user that owns the cluster installation.
 # Note: cilium needs to set kube_owner to root https://kubespray.io/#/docs/CNI/cilium?id=unprivileged-agent-configuration
-kube_owner: kube
+kube_owner: root
 
 # This is the group that the cert creation scripts chgrp the
 # cert files to. Not really changeable...
@@ -70,6 +70,9 @@ kube_network_plugin: cilium
 
 # Setting multi_networking to true will install Multus: https://github.com/k8snetworkplumbingwg/multus-cni
 kube_network_plugin_multus: false
+cilium_enable_ipv4: true
+cilium_enable_ipv6: true
+cilium_kube_proxy_replacement: false
 
 # Kubernetes internal network for services, unused block of space.
 kube_service_addresses: 10.233.0.0/18
@@ -99,18 +102,18 @@ kube_network_node_prefix: 24
 # Kubernetes internal network for IPv6 services, unused block of space.
 # This is only used if ipv6_stack is set to true
 # This provides 4096 IPv6 IPs
-kube_service_addresses_ipv6: fd85:ee78:d8a6:8607::1000/116
+#kube_service_addresses_ipv6: fd85:ee78:d8a6:8607::1000/116
 
 # Internal network. When used, it will assign IPv6 addresses from this range to individual pods.
 # This network must not already be in your network infrastructure!
 # This is only used if ipv6_stack is set to true.
 # This provides room for 256 nodes with 254 pods per node.
-kube_pods_subnet_ipv6: fd85:ee78:d8a6:8607::1:0000/112
+#kube_pods_subnet_ipv6: fd85:ee78:d8a6:8607::1:0000/112
 
 # IPv6 subnet size allocated to each for pods.
 # This is only used if ipv6_stack is set to true
 # This provides room for 254 pods per node.
-kube_network_node_prefix_ipv6: 120
+#kube_network_node_prefix_ipv6: 120
 
 # The port the API Server will be listening on.
 kube_apiserver_ip: "{{ kube_service_subnets.split(',') | first | ansible.utils.ipaddr('net') | ansible.utils.ipaddr(1) | ansible.utils.ipaddr('address') }}"
