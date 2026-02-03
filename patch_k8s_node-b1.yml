@@ -1,0 +1,109 @@
+---
+- name: Safely patch Kubernetes node OS (with reporting)
+  hosts: all
+  serial: 1
+  become: true
+
+  vars:
+    kubeconfig: /etc/kubernetes/admin.conf
+    reboot_required_file: /var/run/reboot-required
+    drain_timeout: 600
+
+  pre_tasks:
+    - name: Get node name
+      command: hostname
+      register: node_name
+      changed_when: false
+
+    - name: Initialize patch report
+      set_fact:
+        packages_upgraded: 0
+        node_rebooted: false
+
+  tasks:
+    # ===============================
+    # Worker nodes – cordon & drain
+    # ===============================
+    - name: Cordon worker node
+      delegate_to: "{{ groups['kube_control_plane'][0] }}"
+      command: kubectl cordon {{ node_name.stdout }}
+      when: inventory_hostname in groups['kube_node']
+
+    - name: Drain worker node
+      delegate_to: "{{ groups['kube_control_plane'][0] }}"
+      command: >
+        kubectl drain {{ node_name.stdout }}
+        --ignore-daemonsets
+        --delete-emptydir-data
+        --force
+        --timeout={{ drain_timeout }}s
+      when: inventory_hostname in groups['kube_node']
+
+    # ===============================
+    # OS patching
+    # ===============================
+    - name: Update OS packages
+      apt:
+        update_cache: yes
+        upgrade: dist
+        autoremove: yes
+        autoclean: yes
+      register: apt_result
+
+    - name: Record number of upgraded packages
+      set_fact:
+        packages_upgraded: "{{ apt_result.changes | default({}) | length }}"
+
+    - name: Check if reboot is required
+      stat:
+        path: "{{ reboot_required_file }}"
+      register: reboot_required
+
+    - name: Reboot node if required
+      reboot:
+        reboot_timeout: 900
+      when: reboot_required.stat.exists
+
+    - name: Mark node as rebooted
+      set_fact:
+        node_rebooted: true
+      when: reboot_required.stat.exists
+
+    # ===============================
+    # Wait logic (SCP-safe)
+    # ===============================
+    - name: Wait for kube-apiserver (control plane)
+      when: inventory_hostname in groups['kube_control_plane']
+      wait_for:
+        host: 127.0.0.1
+        port: 6443
+        delay: 10
+        timeout: 300
+
+    - name: Wait for worker node to become Ready
+      when: inventory_hostname in groups['kube_node']
+      delegate_to: "{{ groups['kube_control_plane'][0] }}"
+      command: >
+        kubectl wait node/{{ node_name.stdout }}
+        --for=condition=Ready
+        --timeout=600s
+
+    # ===============================
+    # Worker nodes – uncordon
+    # ===============================
+    - name: Uncordon worker node
+      delegate_to: "{{ groups['kube_control_plane'][0] }}"
+      command: kubectl uncordon {{ node_name.stdout }}
+      when: inventory_hostname in groups['kube_node']
+
+  post_tasks:
+    # ===============================
+    # Per-node summary
+    # ===============================
+    - name: Patch summary for node
+      debug:
+        msg:
+          - "Node: {{ node_name.stdout }}"
+          - "Packages upgraded: {{ packages_upgraded }}"
+          - "Node rebooted: {{ node_rebooted }}"
+
